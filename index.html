@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Camera Overlay</title>
+    <title>Full Camera View</title>
     <style>
         * {
             margin: 0;
@@ -16,22 +16,23 @@
             background: #000;
             height: 100vh;
             touch-action: manipulation;
+            overflow: hidden;
         }
 
         #container {
             position: relative;
             width: 100vw;
             height: 100vh;
-            overflow: hidden;
             display: flex;
             justify-content: center;
             align-items: center;
         }
 
         #cameraView {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: 100%;
         }
 
         #overlayImage {
@@ -110,19 +111,19 @@
         const captureBtn = document.getElementById('capture');
         const switchBtn = document.getElementById('switchCamera');
         const closeBtn = document.getElementById('closeOverlay');
+        const container = document.getElementById('container');
         
         let currentFacingMode = 'environment';
         let stream = null;
-        let cameraWidth = 0;
-        let cameraHeight = 0;
+        let cameraRatio = null;
 
         async function startCamera() {
             try {
                 const constraints = {
                     video: {
                         facingMode: currentFacingMode,
-                        width: { ideal: 1920 },
-                        height: { ideal: 1080 }
+                        width: { ideal: 4096 },
+                        height: { ideal: 2160 }
                     }
                 };
 
@@ -130,15 +131,19 @@
                 video.srcObject = stream;
 
                 video.onloadedmetadata = () => {
-                    cameraWidth = video.videoWidth;
-                    cameraHeight = video.videoHeight;
-                    
-                    // Set container aspect ratio
-                    video.style.width = '100%';
-                    video.style.height = '100%';
-                    
-                    // Initialize overlay sizing
-                    if(overlay.src) resizeOverlay();
+                    // Get actual camera dimensions
+                    const cameraWidth = video.videoWidth;
+                    const cameraHeight = video.videoHeight;
+                    cameraRatio = cameraWidth / cameraHeight;
+
+                    // Adjust container to match camera aspect ratio
+                    if(cameraRatio > container.clientWidth / container.clientHeight) {
+                        video.style.width = '100%';
+                        video.style.height = 'auto';
+                    } else {
+                        video.style.width = 'auto';
+                        video.style.height = '100%';
+                    }
                 };
             } catch (err) {
                 alert('Camera access error: ' + err.message);
@@ -168,32 +173,21 @@
             }
         });
 
-        // Resize overlay to fit within camera dimensions
+        // Resize overlay to match camera aspect ratio
         function resizeOverlay() {
-            if(!overlay.src || !cameraWidth || !cameraHeight) return;
+            if(!overlay.src || !cameraRatio) return;
 
             const img = new Image();
             img.onload = () => {
-                const imgRatio = img.width / img.height;
-                const cameraRatio = cameraWidth / cameraHeight;
+                const overlayRatio = img.width / img.height;
                 
-                // Calculate maximum dimensions
-                let maxWidth = cameraWidth;
-                let maxHeight = cameraHeight;
-                
-                if(img.width > cameraWidth || img.height > cameraHeight) {
-                    if(imgRatio > cameraRatio) {
-                        maxWidth = cameraWidth;
-                        maxHeight = maxWidth / imgRatio;
-                    } else {
-                        maxHeight = cameraHeight;
-                        maxWidth = maxHeight * imgRatio;
-                    }
+                if(overlayRatio > cameraRatio) {
+                    overlay.style.width = '100%';
+                    overlay.style.height = 'auto';
+                } else {
+                    overlay.style.height = '100%';
+                    overlay.style.width = 'auto';
                 }
-                
-                // Set overlay dimensions
-                overlay.style.maxWidth = `${maxWidth}px`;
-                overlay.style.maxHeight = `${maxHeight}px`;
             };
             img.src = overlay.src;
         }
@@ -207,8 +201,8 @@
         // Capture photo
         captureBtn.addEventListener('click', () => {
             const canvas = document.createElement('canvas');
-            canvas.width = cameraWidth;
-            canvas.height = cameraHeight;
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
             const ctx = canvas.getContext('2d');
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -217,7 +211,6 @@
                 ctx.globalAlpha = 0.7;
                 const img = new Image();
                 img.onload = () => {
-                    // Scale overlay to camera dimensions
                     const scale = Math.min(
                         canvas.width / img.width,
                         canvas.height / img.height
@@ -247,6 +240,19 @@
             link.href = canvas.toDataURL('image/jpeg');
             link.click();
         }
+
+        // Handle orientation changes
+        window.addEventListener('resize', () => {
+            if(cameraRatio) {
+                if(cameraRatio > container.clientWidth / container.clientHeight) {
+                    video.style.width = '100%';
+                    video.style.height = 'auto';
+                } else {
+                    video.style.width = 'auto';
+                    video.style.height = '100%';
+                }
+            }
+        });
 
         // Initialize
         startCamera();
