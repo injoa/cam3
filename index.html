@@ -31,13 +31,13 @@
         #cameraView {
             width: 100%;
             height: 100%;
-            object-fit: contain;
+            object-fit: cover;
         }
 
         #overlayImage {
             position: absolute;
-            max-width: 90%;
-            max-height: 90%;
+            max-width: 100%;
+            max-height: 100%;
             pointer-events: none;
             opacity: 0.7;
             object-fit: contain;
@@ -113,28 +113,32 @@
         
         let currentFacingMode = 'environment';
         let stream = null;
+        let cameraWidth = 0;
+        let cameraHeight = 0;
 
         async function startCamera() {
             try {
                 const constraints = {
                     video: {
                         facingMode: currentFacingMode,
-                        width: { ideal: window.screen.width },
-                        height: { ideal: window.screen.height }
+                        width: { ideal: 1920 },
+                        height: { ideal: 1080 }
                     }
                 };
 
                 stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
 
-                // Adjust video sizing
                 video.onloadedmetadata = () => {
+                    cameraWidth = video.videoWidth;
+                    cameraHeight = video.videoHeight;
+                    
+                    // Set container aspect ratio
                     video.style.width = '100%';
-                    video.style.height = 'auto';
-                    if(video.videoHeight > video.videoWidth) {
-                        video.style.width = 'auto';
-                        video.style.height = '100%';
-                    }
+                    video.style.height = '100%';
+                    
+                    // Initialize overlay sizing
+                    if(overlay.src) resizeOverlay();
                 };
             } catch (err) {
                 alert('Camera access error: ' + err.message);
@@ -164,38 +168,47 @@
             }
         });
 
+        // Resize overlay to fit within camera dimensions
+        function resizeOverlay() {
+            if(!overlay.src || !cameraWidth || !cameraHeight) return;
+
+            const img = new Image();
+            img.onload = () => {
+                const imgRatio = img.width / img.height;
+                const cameraRatio = cameraWidth / cameraHeight;
+                
+                // Calculate maximum dimensions
+                let maxWidth = cameraWidth;
+                let maxHeight = cameraHeight;
+                
+                if(img.width > cameraWidth || img.height > cameraHeight) {
+                    if(imgRatio > cameraRatio) {
+                        maxWidth = cameraWidth;
+                        maxHeight = maxWidth / imgRatio;
+                    } else {
+                        maxHeight = cameraHeight;
+                        maxWidth = maxHeight * imgRatio;
+                    }
+                }
+                
+                // Set overlay dimensions
+                overlay.style.maxWidth = `${maxWidth}px`;
+                overlay.style.maxHeight = `${maxHeight}px`;
+            };
+            img.src = overlay.src;
+        }
+
         // Remove overlay
         closeBtn.addEventListener('click', () => {
             overlay.src = '';
             overlay.style.display = 'none';
         });
 
-        // Resize overlay to match video aspect ratio
-        function resizeOverlay() {
-            if(!overlay.src) return;
-            
-            const videoRatio = video.videoWidth / video.videoHeight;
-            const overlayImage = new Image();
-            
-            overlayImage.onload = () => {
-                const overlayRatio = overlayImage.width / overlayImage.height;
-                
-                if(overlayRatio > videoRatio) {
-                    overlay.style.width = '90%';
-                    overlay.style.height = 'auto';
-                } else {
-                    overlay.style.height = '90%';
-                    overlay.style.width = 'auto';
-                }
-            };
-            overlayImage.src = overlay.src;
-        }
-
         // Capture photo
         captureBtn.addEventListener('click', () => {
             const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
+            canvas.width = cameraWidth;
+            canvas.height = cameraHeight;
             const ctx = canvas.getContext('2d');
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -204,6 +217,7 @@
                 ctx.globalAlpha = 0.7;
                 const img = new Image();
                 img.onload = () => {
+                    // Scale overlay to camera dimensions
                     const scale = Math.min(
                         canvas.width / img.width,
                         canvas.height / img.height
