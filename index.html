@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Image Overlay</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f5f5f5;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #333;
+            margin: 15px 0;
+        }
+        #container {
+            position: relative;
+            width: 98vw;
+            height: 90vh;
+            margin: 10px 0;
+            border: 3px solid #ddd;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            background-color: #000;
+        }
+        #cameraView {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        #overlayImage {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            max-width: 100%;
+            max-height: 100%;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+        .controls {
+            margin: 15px 0;
+            padding: 15px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            width: 98%;
+            max-width: 600px;
+            box-sizing: border-box;
+        }
+        .buttons-row {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        button {
+            background-color: #4CAF50;
+            border: none;
+            color: white;
+            padding: 10px 15px;
+            text-align: center;
+            text-decoration: none;
+            font-size: 16px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background-color 0.3s;
+            flex: 1;
+            min-width: 120px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #stopCamera {
+            background-color: #f44336;
+        }
+        #stopCamera:hover {
+            background-color: #d32f2f;
+        }
+        #capture {
+            background-color: #2196F3;
+        }
+        #capture:hover {
+            background-color: #0b7dda;
+        }
+        .slider-container {
+            margin: 10px 0;
+            display: flex;
+            align-items: center;
+        }
+        label {
+            display: inline-block;
+            width: 120px;
+            text-align: right;
+            margin-right: 10px;
+        }
+        input[type="range"] {
+            flex: 1;
+            min-width: 150px;
+            max-width: 300px;
+        }
+        #imageUpload {
+            display: none;
+        }
+        .upload-btn {
+            background-color: #ff9800;
+        }
+        .upload-btn:hover {
+            background-color: #e68a00;
+        }
+        .value-display {
+            width: 40px;
+            text-align: center;
+            margin-left: 10px;
+        }
+        @media (max-width: 600px) {
+            .controls {
+                padding: 10px;
+            }
+            .slider-container {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            label {
+                text-align: left;
+                margin-bottom: 5px;
+            }
+            input[type="range"] {
+                width: 100%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Camera Image Overlay</h1>
+    
+    <div class="controls">
+        <div class="buttons-row">
+            <label for="imageUpload" class="upload-btn">Choose Overlay</label>
+            <input type="file" id="imageUpload" accept="image/*">
+            <button id="startCamera">Start Camera</button>
+            <button id="stopCamera" disabled>Stop Camera</button>
+            <button id="capture" disabled>Capture Photo</button>
+        </div>
+        
+        <div class="slider-container">
+            <label for="opacitySlider">Opacity:</label>
+            <input type="range" id="opacitySlider" min="0" max="1" step="0.1" value="0.7" disabled>
+            <span class="value-display" id="opacityValue">70%</span>
+        </div>
+        
+        <div class="slider-container">
+            <label for="sizeSlider">Size:</label>
+            <input type="range" id="sizeSlider" min="10" max="200" value="100" disabled>
+            <span class="value-display" id="sizeValue">100%</span>
+        </div>
+    </div>
+    
+    <div id="container">
+        <video id="cameraView" autoplay playsinline></video>
+        <img id="overlayImage" src="" alt="Overlay" style="display: none;">
+    </div>
+    
+    <canvas id="canvas" style="display: none;"></canvas>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const video = document.getElementById('cameraView');
+            const overlay = document.getElementById('overlayImage');
+            const imageUpload = document.getElementById('imageUpload');
+            const startCamera = document.getElementById('startCamera');
+            const stopCamera = document.getElementById('stopCamera');
+            const captureBtn = document.getElementById('capture');
+            const canvas = document.getElementById('canvas');
+            const opacitySlider = document.getElementById('opacitySlider');
+            const sizeSlider = document.getElementById('sizeSlider');
+            const sizeValue = document.getElementById('sizeValue');
+            const opacityValue = document.getElementById('opacityValue');
+            const uploadBtn = document.querySelector('.upload-btn');
+            
+            let stream = null;
+            let overlaySize = 100;
+            
+            // Start camera
+            startCamera.addEventListener('click', async function() {
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        video: { 
+                            facingMode: 'user',
+                            width: { ideal: 1920 },
+                            height: { ideal: 1080 }
+                        }, 
+                        audio: false 
+                    });
+                    video.srcObject = stream;
+                    startCamera.disabled = true;
+                    stopCamera.disabled = false;
+                    captureBtn.disabled = false;
+                    
+                    // Enable controls when camera starts
+                    opacitySlider.disabled = false;
+                    sizeSlider.disabled = false;
+                    
+                    // Set initial overlay size based on video
+                    video.addEventListener('loadedmetadata', function() {
+                        updateOverlaySize();
+                    });
+                } catch (err) {
+                    console.error("Error accessing camera: ", err);
+                    alert("Could not access the camera. Please ensure you've granted permission.");
+                }
+            });
+            
+            // Stop camera
+            stopCamera.addEventListener('click', function() {
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    video.srcObject = null;
+                    startCamera.disabled = false;
+                    stopCamera.disabled = true;
+                    captureBtn.disabled = true;
+                    
+                    // Disable controls when camera stops
+                    opacitySlider.disabled = true;
+                    sizeSlider.disabled = true;
+                }
+            });
+            
+            // Upload overlay image
+            imageUpload.addEventListener('change', function(e) {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = function(event) {
+                        overlay.src = event.target.result;
+                        overlay.style.display = 'block';
+                        updateOverlaySize();
+                    };
+                    reader.readAsDataURL(file);
+                }
+            });
+            
+            // Trigger file input when button is clicked
+            uploadBtn.addEventListener('click', function() {
+                imageUpload.click();
+            });
+            
+            // Update overlay opacity
+            opacitySlider.addEventListener('input', function() {
+                const opacity = parseFloat(this.value);
+                overlay.style.opacity = opacity;
+                opacityValue.textContent = Math.round(opacity * 100) + '%';
+            });
+            
+            // Update overlay size
+            sizeSlider.addEventListener('input', function() {
+                overlaySize = parseInt(this.value);
+                sizeValue.textContent = overlaySize + '%';
+                updateOverlaySize();
+            });
+            
+            function updateOverlaySize() {
+                if (overlay.src) {
+                    const img = new Image();
+                    img.onload = function() {
+                        const containerWidth = document.getElementById('container').clientWidth;
+                        const containerHeight = document.getElementById('container').clientHeight;
+                        const aspectRatio = img.width / img.height;
+                        
+                        let newWidth = (containerWidth * overlaySize) / 100;
+                        let newHeight = newWidth / aspectRatio;
+                        
+                        // If height exceeds container height, scale down
+                        if (newHeight > containerHeight) {
+                            newHeight = containerHeight;
+                            newWidth = newHeight * aspectRatio;
+                        }
+                        
+                        overlay.style.width = newWidth + 'px';
+                        overlay.style.height = newHeight + 'px';
+                    };
+                    img.src = overlay.src;
+                }
+            }
+            
+            // Capture photo
+            captureBtn.addEventListener('click', function() {
+                if (!stream) {
+                    alert("Please start the camera first.");
+                    return;
+                }
+                
+                const container = document.getElementById('container');
+                canvas.width = container.clientWidth;
+                canvas.height = container.clientHeight;
+                const ctx = canvas.getContext('2d');
+                
+                // Draw video frame
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                // Draw overlay if it exists
+                if (overlay.style.display !== 'none') {
+                    const img = new Image();
+                    img.onload = function() {
+                        const aspectRatio = img.width / img.height;
+                        let width = (canvas.width * overlaySize) / 100;
+                        let height = width / aspectRatio;
+                        
+                        // If height exceeds canvas height, scale down
+                        if (height > canvas.height) {
+                            height = canvas.height;
+                            width = height * aspectRatio;
+                        }
+                        
+                        const x = (canvas.width - width) / 2;
+                        const y = (canvas.height - height) / 2;
+                        
+                        ctx.globalAlpha = parseFloat(overlay.style.opacity || 0.7);
+                        ctx.drawImage(img, x, y, width, height);
+                        ctx.globalAlpha = 1.0;
+                        
+                        // Create download link
+                        const dataURL = canvas.toDataURL('image/png');
+                        const link = document.createElement('a');
+                        link.download = 'overlay-photo-' + new Date().getTime() + '.png';
+                        link.href = dataURL;
+                        link.click();
+                    };
+                    img.src = overlay.src;
+                } else {
+                    // Just save the camera image if no overlay
+                    const dataURL = canvas.toDataURL('image/png');
+                    const link = document.createElement('a');
+                    link.download = 'camera-photo-' + new Date().getTime() + '.png';
+                    link.href = dataURL;
+                    link.click();
+                }
+            });
+        });
+    </script>
+</body>
+</html>
