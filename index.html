@@ -23,23 +23,24 @@
             width: 100vw;
             height: 100vh;
             overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
         }
 
         #cameraView {
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            object-fit: contain;
         }
 
         #overlayImage {
             position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
             max-width: 90%;
             max-height: 90%;
             pointer-events: none;
             opacity: 0.7;
+            object-fit: contain;
         }
 
         .controls {
@@ -113,17 +114,28 @@
         let currentFacingMode = 'environment';
         let stream = null;
 
-        // Start back camera
         async function startCamera() {
             try {
-                stream = await navigator.mediaDevices.getUserMedia({
+                const constraints = {
                     video: {
                         facingMode: currentFacingMode,
-                        width: { ideal: 1080 },
-                        height: { ideal: 1920 }
+                        width: { ideal: window.screen.width },
+                        height: { ideal: window.screen.height }
                     }
-                });
+                };
+
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
                 video.srcObject = stream;
+
+                // Adjust video sizing
+                video.onloadedmetadata = () => {
+                    video.style.width = '100%';
+                    video.style.height = 'auto';
+                    if(video.videoHeight > video.videoWidth) {
+                        video.style.width = 'auto';
+                        video.style.height = '100%';
+                    }
+                };
             } catch (err) {
                 alert('Camera access error: ' + err.message);
             }
@@ -146,6 +158,7 @@
                 reader.onload = (event) => {
                     overlay.src = event.target.result;
                     overlay.style.display = 'block';
+                    resizeOverlay();
                 };
                 reader.readAsDataURL(file);
             }
@@ -157,6 +170,27 @@
             overlay.style.display = 'none';
         });
 
+        // Resize overlay to match video aspect ratio
+        function resizeOverlay() {
+            if(!overlay.src) return;
+            
+            const videoRatio = video.videoWidth / video.videoHeight;
+            const overlayImage = new Image();
+            
+            overlayImage.onload = () => {
+                const overlayRatio = overlayImage.width / overlayImage.height;
+                
+                if(overlayRatio > videoRatio) {
+                    overlay.style.width = '90%';
+                    overlay.style.height = 'auto';
+                } else {
+                    overlay.style.height = '90%';
+                    overlay.style.width = 'auto';
+                }
+            };
+            overlayImage.src = overlay.src;
+        }
+
         // Capture photo
         captureBtn.addEventListener('click', () => {
             const canvas = document.createElement('canvas');
@@ -164,28 +198,41 @@
             canvas.height = video.videoHeight;
             const ctx = canvas.getContext('2d');
             
-            // Flip image for front camera
-            if(currentFacingMode === 'user') {
-                ctx.translate(canvas.width, 0);
-                ctx.scale(-1, 1);
-            }
-            
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
             if(overlay.src) {
                 ctx.globalAlpha = 0.7;
-                ctx.drawImage(
-                    overlay,
-                    (canvas.width - overlay.naturalWidth)/2,
-                    (canvas.height - overlay.naturalHeight)/2
-                );
+                const img = new Image();
+                img.onload = () => {
+                    const scale = Math.min(
+                        canvas.width / img.width,
+                        canvas.height / img.height
+                    );
+                    const width = img.width * scale;
+                    const height = img.height * scale;
+                    
+                    ctx.drawImage(
+                        img,
+                        (canvas.width - width) / 2,
+                        (canvas.height - height) / 2,
+                        width,
+                        height
+                    );
+                    
+                    savePhoto(canvas);
+                };
+                img.src = overlay.src;
+            } else {
+                savePhoto(canvas);
             }
-            
+        });
+
+        function savePhoto(canvas) {
             const link = document.createElement('a');
             link.download = `photo-${Date.now()}.jpg`;
             link.href = canvas.toDataURL('image/jpeg');
             link.click();
-        });
+        }
 
         // Initialize
         startCamera();
