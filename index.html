@@ -14,6 +14,7 @@
             flex-direction: column;
             align-items: center;
             min-height: 100vh;
+            touch-action: none;
         }
         h1 {
             color: #333;
@@ -29,11 +30,13 @@
             overflow: hidden;
             box-shadow: 0 4px 8px rgba(0,0,0,0.1);
             background-color: #000;
+            transform: rotate(0deg);
         }
         #cameraView {
             width: 100%;
             height: 100%;
             object-fit: cover;
+            transform: rotateY(180deg);
         }
         #overlayImage {
             position: absolute;
@@ -44,6 +47,7 @@
             max-height: 100%;
             pointer-events: none;
             opacity: 0.7;
+            object-fit: contain;
         }
         .controls {
             margin: 15px 0;
@@ -192,31 +196,37 @@
             
             let stream = null;
             let overlaySize = 100;
+            let isPortrait = true;
             
-            // Start camera
+            // Start camera with back camera
             startCamera.addEventListener('click', async function() {
                 try {
                     stream = await navigator.mediaDevices.getUserMedia({ 
                         video: { 
-                            facingMode: 'user',
-                            width: { ideal: 1920 },
-                            height: { ideal: 1080 }
+                            facingMode: 'environment',
+                            width: { ideal: 1080 },
+                            height: { ideal: 1920 }
                         }, 
                         audio: false 
                     });
+                    
+                    // Force portrait orientation
+                    video.style.transform = 'rotateY(180deg)';
                     video.srcObject = stream;
                     startCamera.disabled = true;
                     stopCamera.disabled = false;
                     captureBtn.disabled = false;
                     
-                    // Enable controls when camera starts
+                    // Enable controls
                     opacitySlider.disabled = false;
                     sizeSlider.disabled = false;
                     
-                    // Set initial overlay size based on video
+                    // Update overlay size when video loads
                     video.addEventListener('loadedmetadata', function() {
                         updateOverlaySize();
+                        setupOrientation();
                     });
+                    
                 } catch (err) {
                     console.error("Error accessing camera: ", err);
                     alert("Could not access the camera. Please ensure you've granted permission.");
@@ -231,14 +241,12 @@
                     startCamera.disabled = false;
                     stopCamera.disabled = true;
                     captureBtn.disabled = true;
-                    
-                    // Disable controls when camera stops
                     opacitySlider.disabled = true;
                     sizeSlider.disabled = true;
                 }
             });
             
-            // Upload overlay image
+            // Handle image upload
             imageUpload.addEventListener('change', function(e) {
                 const file = e.target.files[0];
                 if (file) {
@@ -252,11 +260,6 @@
                 }
             });
             
-            // Trigger file input when button is clicked
-            uploadBtn.addEventListener('click', function() {
-                imageUpload.click();
-            });
-            
             // Update overlay opacity
             opacitySlider.addEventListener('input', function() {
                 const opacity = parseFloat(this.value);
@@ -264,38 +267,62 @@
                 opacityValue.textContent = Math.round(opacity * 100) + '%';
             });
             
-            // Update overlay size
+            // Update overlay size with aspect ratio
             sizeSlider.addEventListener('input', function() {
                 overlaySize = parseInt(this.value);
                 sizeValue.textContent = overlaySize + '%';
                 updateOverlaySize();
             });
             
+            // Maintain aspect ratio for overlay
             function updateOverlaySize() {
                 if (overlay.src) {
                     const img = new Image();
                     img.onload = function() {
-                        const containerWidth = document.getElementById('container').clientWidth;
-                        const containerHeight = document.getElementById('container').clientHeight;
-                        const aspectRatio = img.width / img.height;
+                        const container = document.getElementById('container');
+                        const containerWidth = container.clientWidth;
+                        const containerHeight = container.clientHeight;
+                        const aspectRatio = img.naturalWidth / img.naturalHeight;
                         
-                        let newWidth = (containerWidth * overlaySize) / 100;
-                        let newHeight = newWidth / aspectRatio;
+                        let newWidth, newHeight;
                         
-                        // If height exceeds container height, scale down
-                        if (newHeight > containerHeight) {
-                            newHeight = containerHeight;
+                        if (isPortrait) {
+                            newWidth = containerWidth * (overlaySize / 100);
+                            newHeight = newWidth / aspectRatio;
+                            
+                            if (newHeight > containerHeight) {
+                                newHeight = containerHeight;
+                                newWidth = newHeight * aspectRatio;
+                            }
+                        } else {
+                            newHeight = containerHeight * (overlaySize / 100);
                             newWidth = newHeight * aspectRatio;
+                            
+                            if (newWidth > containerWidth) {
+                                newWidth = containerWidth;
+                                newHeight = newWidth / aspectRatio;
+                            }
                         }
                         
-                        overlay.style.width = newWidth + 'px';
-                        overlay.style.height = newHeight + 'px';
+                        overlay.style.width = `${newWidth}px`;
+                        overlay.style.height = `${newHeight}px`;
                     };
                     img.src = overlay.src;
                 }
             }
             
-            // Capture photo
+            // Handle device orientation
+            function setupOrientation() {
+                const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+                if (isMobile) {
+                    screen.orientation.addEventListener('change', () => {
+                        isPortrait = screen.orientation.type.includes('portrait');
+                        updateOverlaySize();
+                    });
+                }
+            }
+            
+            // Capture photo with correct orientation
             captureBtn.addEventListener('click', function() {
                 if (!stream) {
                     alert("Please start the camera first.");
@@ -307,43 +334,39 @@
                 canvas.height = container.clientHeight;
                 const ctx = canvas.getContext('2d');
                 
-                // Draw video frame
+                // Rotate canvas for portrait capture
+                ctx.save();
+                if (isPortrait) {
+                    ctx.translate(canvas.width, 0);
+                    ctx.scale(-1, 1);
+                }
+                
                 ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                 
-                // Draw overlay if it exists
+                // Draw overlay
                 if (overlay.style.display !== 'none') {
                     const img = new Image();
                     img.onload = function() {
-                        const aspectRatio = img.width / img.height;
-                        let width = (canvas.width * overlaySize) / 100;
-                        let height = width / aspectRatio;
-                        
-                        // If height exceeds canvas height, scale down
-                        if (height > canvas.height) {
-                            height = canvas.height;
-                            width = height * aspectRatio;
-                        }
-                        
-                        const x = (canvas.width - width) / 2;
-                        const y = (canvas.height - height) / 2;
-                        
                         ctx.globalAlpha = parseFloat(overlay.style.opacity || 0.7);
-                        ctx.drawImage(img, x, y, width, height);
+                        const x = (canvas.width - img.width) / 2;
+                        const y = (canvas.height - img.height) / 2;
+                        ctx.drawImage(img, x, y, img.width, img.height);
                         ctx.globalAlpha = 1.0;
                         
-                        // Create download link
+                        // Save image
+                        ctx.restore();
                         const dataURL = canvas.toDataURL('image/png');
                         const link = document.createElement('a');
-                        link.download = 'overlay-photo-' + new Date().getTime() + '.png';
+                        link.download = `overlay-photo-${Date.now()}.png`;
                         link.href = dataURL;
                         link.click();
                     };
                     img.src = overlay.src;
                 } else {
-                    // Just save the camera image if no overlay
+                    ctx.restore();
                     const dataURL = canvas.toDataURL('image/png');
                     const link = document.createElement('a');
-                    link.download = 'camera-photo-' + new Date().getTime() + '.png';
+                    link.download = `camera-photo-${Date.now()}.png`;
                     link.href = dataURL;
                     link.click();
                 }
