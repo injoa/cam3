@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Full Camera View</title>
+    <title>Working Camera Overlay</title>
     <style>
         * {
             margin: 0;
@@ -26,19 +26,19 @@
             display: flex;
             justify-content: center;
             align-items: center;
+            background: black;
         }
 
         #cameraView {
-            width: auto;
-            height: auto;
-            max-width: 100%;
-            max-height: 100%;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
         }
 
         #overlayImage {
             position: absolute;
-            max-width: 100%;
-            max-height: 100%;
+            max-width: 90%;
+            max-height: 90%;
             pointer-events: none;
             opacity: 0.7;
             object-fit: contain;
@@ -83,19 +83,16 @@
             padding: 10px;
             border-radius: 5px;
             cursor: pointer;
-        }
-
-        #fileInput {
-            display: none;
+            z-index: 2;
         }
     </style>
 </head>
 <body>
     <div id="container">
         <video id="cameraView" autoplay playsinline></video>
-        <img id="overlayImage" src="" alt="Overlay">
+        <img id="overlayImage" src="" alt="Overlay" style="display: none;">
         <label id="uploadLabel" for="fileInput">📁 Upload</label>
-        <input type="file" id="fileInput" accept="image/*">
+        <input type="file" id="fileInput" accept="image/*" style="display: none;">
         
         <div class="controls">
             <button id="switchCamera">↺</button>
@@ -111,52 +108,44 @@
         const captureBtn = document.getElementById('capture');
         const switchBtn = document.getElementById('switchCamera');
         const closeBtn = document.getElementById('closeOverlay');
-        const container = document.getElementById('container');
         
         let currentFacingMode = 'environment';
         let stream = null;
-        let cameraRatio = null;
 
         async function startCamera() {
             try {
-                const constraints = {
+                // Release previous stream
+                if(stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                }
+
+                // Get camera access
+                stream = await navigator.mediaDevices.getUserMedia({
                     video: {
                         facingMode: currentFacingMode,
-                        width: { ideal: 4096 },
-                        height: { ideal: 2160 }
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
                     }
-                };
+                });
 
-                stream = await navigator.mediaDevices.getUserMedia(constraints);
+                // Attach stream to video element
                 video.srcObject = stream;
+                video.play();
 
-                video.onloadedmetadata = () => {
-                    // Get actual camera dimensions
-                    const cameraWidth = video.videoWidth;
-                    const cameraHeight = video.videoHeight;
-                    cameraRatio = cameraWidth / cameraHeight;
+                // Enable controls after stream starts
+                switchBtn.disabled = false;
+                captureBtn.disabled = false;
 
-                    // Adjust container to match camera aspect ratio
-                    if(cameraRatio > container.clientWidth / container.clientHeight) {
-                        video.style.width = '100%';
-                        video.style.height = 'auto';
-                    } else {
-                        video.style.width = 'auto';
-                        video.style.height = '100%';
-                    }
-                };
             } catch (err) {
-                alert('Camera access error: ' + err.message);
+                console.error('Camera error:', err);
+                alert('Failed to access camera. Please enable permissions and try again.');
             }
         }
 
         // Switch camera
         switchBtn.addEventListener('click', () => {
             currentFacingMode = currentFacingMode === 'user' ? 'environment' : 'user';
-            if(stream) {
-                stream.getTracks().forEach(track => track.stop());
-                startCamera();
-            }
+            startCamera();
         });
 
         // Handle overlay image
@@ -167,30 +156,10 @@
                 reader.onload = (event) => {
                     overlay.src = event.target.result;
                     overlay.style.display = 'block';
-                    resizeOverlay();
                 };
                 reader.readAsDataURL(file);
             }
         });
-
-        // Resize overlay to match camera aspect ratio
-        function resizeOverlay() {
-            if(!overlay.src || !cameraRatio) return;
-
-            const img = new Image();
-            img.onload = () => {
-                const overlayRatio = img.width / img.height;
-                
-                if(overlayRatio > cameraRatio) {
-                    overlay.style.width = '100%';
-                    overlay.style.height = 'auto';
-                } else {
-                    overlay.style.height = '100%';
-                    overlay.style.width = 'auto';
-                }
-            };
-            img.src = overlay.src;
-        }
 
         // Remove overlay
         closeBtn.addEventListener('click', () => {
@@ -201,61 +170,37 @@
         // Capture photo
         captureBtn.addEventListener('click', () => {
             const canvas = document.createElement('canvas');
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
             const ctx = canvas.getContext('2d');
             
+            // Set canvas dimensions to match video stream
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            
+            // Draw camera frame
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
-            if(overlay.src) {
+            // Draw overlay if present
+            if(overlay.style.display !== 'none') {
                 ctx.globalAlpha = 0.7;
-                const img = new Image();
-                img.onload = () => {
-                    const scale = Math.min(
-                        canvas.width / img.width,
-                        canvas.height / img.height
-                    );
-                    const width = img.width * scale;
-                    const height = img.height * scale;
-                    
-                    ctx.drawImage(
-                        img,
-                        (canvas.width - width) / 2,
-                        (canvas.height - height) / 2,
-                        width,
-                        height
-                    );
-                    
-                    savePhoto(canvas);
-                };
-                img.src = overlay.src;
-            } else {
-                savePhoto(canvas);
+                ctx.drawImage(
+                    overlay,
+                    (canvas.width - overlay.naturalWidth) / 2,
+                    (canvas.height - overlay.naturalHeight) / 2
+                );
             }
-        });
-
-        function savePhoto(canvas) {
+            
+            // Create download link
             const link = document.createElement('a');
             link.download = `photo-${Date.now()}.jpg`;
             link.href = canvas.toDataURL('image/jpeg');
             link.click();
-        }
-
-        // Handle orientation changes
-        window.addEventListener('resize', () => {
-            if(cameraRatio) {
-                if(cameraRatio > container.clientWidth / container.clientHeight) {
-                    video.style.width = '100%';
-                    video.style.height = 'auto';
-                } else {
-                    video.style.width = 'auto';
-                    video.style.height = '100%';
-                }
-            }
         });
 
-        // Initialize
+        // Initialize camera on page load
         startCamera();
+
+        // Handle orientation changes
+        window.addEventListener('orientationchange', startCamera);
     </script>
 </body>
 </html>
